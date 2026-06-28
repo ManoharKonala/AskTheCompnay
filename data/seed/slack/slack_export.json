@@ -1,0 +1,12 @@
+[
+  {
+    "user": "U12345",
+    "text": "Hey team, what is the Q3 revenue target for the enterprise segment?",
+    "ts": "1690890000.000100"
+  },
+  {
+    "user": "U67890",
+    "text": "The Q3 target is $5.2M, but we're currently tracking at $4.8M.",
+    "ts": "1690890060.000200"
+  }
+]
