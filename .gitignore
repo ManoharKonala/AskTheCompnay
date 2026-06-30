@@ -4,3 +4,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .DS_Store
+01_Workflow_Guide.md
+02_Technical_Problem_Compendium.md
+03_Deliverables_Specification.md
+
