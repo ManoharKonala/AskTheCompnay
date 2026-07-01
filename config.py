@@ -1,6 +1,10 @@
 import os
 from dotenv import load_dotenv
 
+# Disable Hugging Face symlinks on Windows to prevent WinError 1314 privilege error
+import huggingface_hub.file_download
+huggingface_hub.file_download.are_symlinks_supported = lambda *args, **kwargs: False
+os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 load_dotenv()
 
 class Config:
