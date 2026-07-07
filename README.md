@@ -9,8 +9,8 @@
 ---
 
 ## 🎥 Demo
-* **Live App URL:** [https://askthecompany.demo.dev](https://askthecompany.demo.dev) *(Placeholder for your hosted URL)*
-* **Loom Walkthrough:** [Watch the 5-Minute Video](https://loom.com/share/placeholder) *(Placeholder for your Loom demo)*
+* **Live App URL:** Local Deployment Only (`http://localhost:8501`)
+* **Loom Walkthrough:** Video coming soon
 
 ---
 
@@ -166,11 +166,10 @@ For data schemas, licenses, and privacy practices, see [/docs/data.md](file:///c
 
 ---
 
-## 📄 Architecture Decision Records (ADRs)
-We document our design trade-offs inside standard ADRs:
-* [ADR-001: Vector Database Selection (Qdrant)](file:///c:/Users/konal/RAG-Futurense/docs/adr/ADR-001-database-selection.md)
-* [ADR-002: Ingestion Parsing Strategy](file:///c:/Users/konal/RAG-Futurense/docs/adr/ADR-002-parsing-strategy.md)
-* [ADR-003: ACL Enforcement at DB vs. Application Level](file:///c:/Users/konal/RAG-Futurense/docs/adr/ADR-003-acl-enforcement.md)
+## 📄 Architecture & Design Documents
+We document our design trade-offs and technical decisions:
+* [Architecture & Tech Stack](docs/architecture_tech_stack.md)
+* [Design Document](docs/design_doc.md)
 
 ---
 
