@@ -1,5 +1,6 @@
 import os
 import sys
+import hashlib
 from typing import List, Dict, Any
 from sqlalchemy.orm import Session
 from config import Config
@@ -10,9 +11,32 @@ from src.db.connection import SessionLocal, qdrant_client, COLLECTION_NAME, init
 from src.db.models import Document, DocumentChunk
 from src.ingestion.parsers import ConfluenceParser, SlackParser, ExcelCSVParser, PDFParser
 
+import logging
+from datasketch import MinHash, MinHashLSH
+import redis
+
+logger = logging.getLogger(__name__)
+
+# Initialize Redis client for LSH storage
+try:
+    redis_client = redis.from_url(Config.REDIS_URL)
+    # Configure LSH to use redis
+    lsh = MinHashLSH(
+        threshold=0.9, 
+        num_perm=128, 
+        storage_config={
+            'type': 'redis', 
+            'redis': {'host': Config.REDIS_URL.split("://")[1].split(":")[0], 'port': 6379}
+        }
+    )
+except Exception as e:
+    logger.error(f"Failed to initialize MinHashLSH with Redis: {e}")
+    lsh = None
+
+
 class IngestionPipeline:
     def __init__(self):
-        print("Initializing BGE-M3 model...")
+        logger.info("Initializing BGE-M3 model...")
         # Load the BGE-M3 model on CPU by default (since we're on a CPU/Windows environment)
         # use_fp16=False is safer for CPU inference
         self.model = BGEM3FlagModel('BAAI/bge-m3', use_fp16=False)
@@ -25,8 +49,9 @@ class IngestionPipeline:
         }
 
     def hash_token(self, token: str) -> int:
-        """Hash a token string to a 32-bit signed integer for Qdrant sparse vector index."""
-        return abs(hash(token)) % 2147483647
+        """Hash a token string to a deterministic 32-bit signed integer for Qdrant sparse vector index.
+        Uses SHA-256 instead of Python's built-in hash() which is randomized per process."""
+        return int(hashlib.sha256(token.encode('utf-8')).hexdigest(), 16) % 2147483647
 
     def get_sparse_vector(self, lexical_weights: dict) -> rest.SparseVector:
         """Convert lexical weights from BGE-M3 into a Qdrant SparseVector."""
@@ -46,19 +71,48 @@ class IngestionPipeline:
 
     def ingest_file(self, db: Session, filepath: str, source_type: str):
         filename = os.path.basename(filepath)
-        print(f"Parsing {filename} ({source_type})...")
+        logger.info(f"Parsing {filename} ({source_type})...")
         
         parser = self.parsers.get(source_type)
         if not parser:
-            print(f"No parser found for source type: {source_type}")
+            logger.error(f"No parser found for source type: {source_type}")
             return
             
         chunks_data = parser.parse(filepath)
         if not chunks_data:
-            print(f"No text extracted from {filename}")
+            logger.warning(f"No text extracted from {filename}")
             return
             
-        print(f"Extracted {len(chunks_data)} chunks. Generating embeddings...")
+        # MinHash Deduplication
+        unique_chunks_data = []
+        for chunk in chunks_data:
+            text = chunk["text_content"]
+            m = MinHash(num_perm=128)
+            for word in text.split():
+                m.update(word.encode('utf8'))
+            
+            # Check if duplicate exists
+            is_duplicate = False
+            if lsh:
+                result = lsh.query(m)
+                if len(result) > 0:
+                    is_duplicate = True
+                    logger.info(f"Duplicate chunk found and skipped: {result[0]}")
+            
+            if not is_duplicate:
+                unique_chunks_data.append(chunk)
+                if lsh:
+                    # Insert into LSH using a unique key
+                    lsh_key = f"{filename}_{chunk['chunk_index']}"
+                    lsh.insert(lsh_key, m)
+                    
+        chunks_data = unique_chunks_data
+        
+        if not chunks_data:
+            logger.warning(f"No unique chunks found in {filename} after deduplication.")
+            return
+            
+        logger.info(f"Extracted {len(chunks_data)} chunks. Generating embeddings...")
         
         # Extract text contents for embedding generation
         texts = [c["text_content"] for c in chunks_data]
@@ -133,7 +187,7 @@ class IngestionPipeline:
                 collection_name=COLLECTION_NAME,
                 points=points
             )
-            print(f"Successfully ingested {len(points)} chunks into Postgres and Qdrant.")
+            logger.info(f"Successfully ingested {len(points)} chunks into Postgres and Qdrant.")
 
     def run_ingestion(self, data_dir: str):
         db = SessionLocal()
@@ -164,6 +218,9 @@ class IngestionPipeline:
             db.close()
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     # If run directly, ingest the seed data
+    PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+    SEED_DATA_DIR = os.path.join(PROJECT_ROOT, 'data', 'seed')
     pipeline = IngestionPipeline()
-    pipeline.run_ingestion(r"c:\Users\konal\RAG-Futurense\data\seed")
+    pipeline.run_ingestion(SEED_DATA_DIR)
