@@ -14,7 +14,7 @@ services:
     image: postgres:15-alpine
     environment:
       POSTGRES_USER: askthecompany
-      POSTGRES_PASSWORD: your_secure_password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-your_secure_password}
       POSTGRES_DB: askthecompany
     ports:
       - "5432:5432"
@@ -52,6 +52,93 @@ services:
     dns:
       - 8.8.8.8
       - 8.8.4.4
+    restart: always
+
+  langfuse:
+    image: langfuse/langfuse:2
+    depends_on:
+      - postgres
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgresql://askthecompany:${POSTGRES_PASSWORD}@postgres:5432/askthecompany
+      - NEXTAUTH_URL=http://localhost:3000
+      - NEXTAUTH_SECRET=mysecret
+      - SALT=mysalt
+    restart: always
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    restart: always
+
+  grafana:
+    image: grafana/grafana:latest
+    depends_on:
+      - prometheus
+    ports:
+      - "3001:3000"
+    restart: always
+
+  # ==========================================
+  # Application Services
+  # ==========================================
+  api:
+    build: .
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_HOST=postgres
+      - QDRANT_HOST=qdrant
+      - REDIS_URL=redis://redis:6379
+      - MINIO_ENDPOINT=minio:9000
+      - OLLAMA_HOST=http://ollama:11434
+    depends_on:
+      - postgres
+      - qdrant
+      - redis
+      - minio
+      - ollama
+    restart: always
+
+  celery-worker:
+    build: .
+    command: celery -A src.celery_app worker --loglevel=info --concurrency=2
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_HOST=postgres
+      - QDRANT_HOST=qdrant
+      - REDIS_URL=redis://redis:6379
+      - MINIO_ENDPOINT=minio:9000
+      - OLLAMA_HOST=http://ollama:11434
+    depends_on:
+      - redis
+      - postgres
+      - qdrant
+    restart: always
+
+  streamlit:
+    build: .
+    command: streamlit run src/app.py --server.port 8501 --server.address 0.0.0.0
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    environment:
+      - API_URL=http://api:8000
+    depends_on:
+      - api
     restart: always
 
 volumes:
