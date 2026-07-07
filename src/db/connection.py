@@ -1,9 +1,12 @@
+import logging
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as rest
 from config import Config
 from src.db.models import Base
+
+logger = logging.getLogger(__name__)
 
 # ==========================================
 # PostgreSQL Setup
@@ -20,7 +23,7 @@ def get_db():
 
 def init_postgres():
     Base.metadata.create_all(bind=engine)
-    print("PostgreSQL tables initialized.")
+    logger.info("PostgreSQL tables initialized.")
 
 # ==========================================
 # Qdrant Setup
@@ -48,9 +51,9 @@ def init_qdrant():
                 )
             }
         )
-        print(f"Qdrant collection '{COLLECTION_NAME}' created with dense (1024) and sparse vector configs.")
+        logger.info(f"Qdrant collection '{COLLECTION_NAME}' created with dense (1024) and sparse vector configs.")
     else:
-        print(f"Qdrant collection '{COLLECTION_NAME}' already exists.")
+        logger.info(f"Qdrant collection '{COLLECTION_NAME}' already exists.")
 
 def init_dbs():
     init_postgres()
