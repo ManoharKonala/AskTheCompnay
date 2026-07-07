@@ -11,7 +11,7 @@ class User(Base):
     username = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
     groups = Column(JSON, nullable=False, default=list)  # e.g. ["HR", "Management", "Engineering"]
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc))
 
     logs = relationship("AuditLog", back_populates="user")
 
@@ -22,7 +22,7 @@ class Document(Base):
     filename = Column(String, nullable=False)
     source_type = Column(String, nullable=False)  # "confluence", "slack", "excel", "pdf"
     filepath = Column(String, nullable=False)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc))
 
     chunks = relationship("DocumentChunk", back_populates="document", cascade="all, delete-orphan")
 
@@ -45,6 +45,6 @@ class AuditLog(Base):
     query = Column(Text, nullable=False)
     response = Column(Text, nullable=False)
     retrieved_chunks = Column(JSON, nullable=True)  # List of chunk IDs and document names
-    timestamp = Column(DateTime, default=datetime.datetime.utcnow)
+    timestamp = Column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc))
 
     user = relationship("User", back_populates="logs")
