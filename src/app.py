@@ -284,10 +284,17 @@ with tabs[1]:
     with col2:
         st.markdown("#### Database Inspection")
         st.write("Ensure your PostgreSQL and Qdrant instances are connected.")
-        # We can add a simple health check or status check here
-        st.success("🟢 PostgreSQL Connected")
-        st.success("🟢 Qdrant Vector DB Connected")
-        st.success("🟢 Redis Cache Connected")
+        try:
+            health_res = requests.get(f"{API_URL}/health", timeout=3)
+            if health_res.status_code == 200:
+                health_data = health_res.json()
+                st.success("🟢 PostgreSQL Connected" if health_data.get("postgres") else "🔴 PostgreSQL Disconnected")
+                st.success("🟢 Qdrant Vector DB Connected" if health_data.get("qdrant") else "🔴 Qdrant Vector DB Disconnected")
+                st.success("🟢 Redis Cache Connected" if health_data.get("redis") else "🔴 Redis Cache Disconnected")
+            else:
+                st.error("🔴 Failed to fetch health status from API.")
+        except Exception:
+            st.error("🔴 Backend API is unreachable.")
 
     # Audit Logs Section
     st.markdown("---")
@@ -297,36 +304,34 @@ with tabs[1]:
     # We can fetch audit logs if the user is logged in
     if st.session_state["token"]:
         headers = {"Authorization": f"Bearer {st.session_state['token']}"}
-        # We can write a simple endpoint or query Postgres directly, but to keep things clean,
-        # we can just write a quick backend check. Since we are a pair programmer, let's make sure
-        # the user can see logs. In a real system, we'd have a `/admin/logs` endpoint.
-        # Let's add a quick direct query to the DB using our connection session!
         try:
-            from src.db.connection import SessionLocal
-            from src.db.models import AuditLog, User as DBUser
-            
-            db = SessionLocal()
-            logs = db.query(AuditLog).order_by(AuditLog.timestamp.desc()).limit(20).all()
-            
-            log_data = []
-            for log in logs:
-                user_obj = db.query(DBUser).filter(DBUser.id == log.user_id).first()
-                username_str = user_obj.username if user_obj else "Anonymous"
-                log_data.append({
-                    "Timestamp": log.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-                    "User": username_str,
-                    "Query": log.query,
-                    "Response": log.response[:100] + "..." if len(log.response) > 100 else log.response,
-                    "Retrieved Chunks": str(log.retrieved_chunks)
-                })
-            db.close()
-            
-            if log_data:
-                df_logs = pd.DataFrame(log_data)
-                st.dataframe(df_logs, use_container_width=True)
+            res = requests.get(f"{API_URL}/admin/logs", headers=headers, params={"limit": 50})
+            if res.status_code == 200:
+                data = res.json()
+                logs = data.get("logs", data) if isinstance(data, dict) else data
+                total = data.get("total", len(logs)) if isinstance(data, dict) else len(logs)
+                if logs:
+                    st.caption(f"Showing {len(logs)} of {total} total log entries.")
+                    log_data = []
+                    for log in logs:
+                        log_data.append({
+                            "Timestamp": log["timestamp"],
+                            "User ID": log["user_id"],
+                            "Query": log["query"],
+                            "Response": log["response"][:100] + "..." if len(log["response"]) > 100 else log["response"],
+                            "Retrieved Chunks": str(log["retrieved_chunks"])
+                        })
+                    df_logs = pd.DataFrame(log_data)
+                    st.dataframe(df_logs, use_container_width=True)
+                else:
+                    st.info("No audit logs found. Run some queries first!")
+            elif res.status_code == 403:
+                st.error("Admin privileges required to view logs.")
+            elif res.status_code == 429:
+                st.warning("Rate limit exceeded. Please wait and try again.")
             else:
-                st.info("No audit logs found. Run some queries first!")
+                st.error(f"Failed to fetch logs: {res.status_code}")
         except Exception as e:
-            st.error(f"Failed to fetch audit logs from database: {e}")
+            st.error(f"Failed to fetch audit logs from API: {e}")
     else:
         st.info("Please log in to view audit logs.")
