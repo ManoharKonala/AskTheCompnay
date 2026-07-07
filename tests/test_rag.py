@@ -3,9 +3,9 @@ import os
 from src.ingestion.parsers import ConfluenceParser, SlackParser
 from src.auth.jwt import get_password_hash, verify_password, create_access_token, decode_access_token
 
-def test_confluence_parser():
+def test_confluence_parser(project_root):
     parser = ConfluenceParser()
-    filepath = r"data/seed/confluence/sample_policy.md"
+    filepath = os.path.join(project_root, "data", "seed", "confluence", "sample_policy.md")
     
     # Check if file exists (it should in the workspace)
     assert os.path.exists(filepath), "Sample policy file not found"
@@ -29,9 +29,9 @@ def test_confluence_parser():
         if "Restricted Access" not in chunk["text_content"]:
             assert chunk["allowed_groups"] == ["Public"], "Non-restricted chunks should be Public"
 
-def test_slack_parser():
+def test_slack_parser(project_root):
     parser = SlackParser()
-    filepath = r"data/seed/slack/slack_export.json"
+    filepath = os.path.join(project_root, "data", "seed", "slack", "slack_export.json")
     
     assert os.path.exists(filepath), "Slack export file not found"
     
