@@ -1,37 +1,51 @@
 # Core Frameworks
-fastapi==0.104.1
+fastapi==0.111.0
 uvicorn==0.24.0
 streamlit>=1.30.0
-llama-index==0.10.23
 
 # Models & Embeddings
 sentence-transformers>=2.3.0
 FlagEmbedding==1.2.0    # For BGE-M3 and BGE-Reranker
+torch>=2.0.0            # Required for FlagEmbedding on Windows
 
 # Databases & Infrastructure
 qdrant-client==1.15.0
 sqlalchemy==2.0.23
-psycopg2-binary==2.9.9
+pg8000>=1.30.0
 redis==5.0.1
-minio==7.2.0
-
-# Task Queue
-celery==5.3.6
 
 # Parsers & Processing
-presidio-analyzer==2.2.351
-presidio-anonymizer==2.2.351
 paddlepaddle>=3.0.0     # CPU version default
 paddleocr>=2.7.0
-unstructured==0.11.0
+pypdf==4.1.0            # Used in PDFParser
+pypdfium2==4.27.0       # Used for OCR fallback rendering
+pandas>=2.0.0           # For ExcelCSVParser
+openpyxl>=3.1.0         # For reading Excel files
+reportlab>=4.1.0        # Used for generating test PDFs
 
 # Utilities & Misc
 python-dotenv==1.0.0
 python-jose[cryptography]==3.3.0  # For JWT
-passlib[bcrypt]==1.7.4            # For password hashing
-datasketch==1.5.9                 # For MinHash Deduplication
+bcrypt==4.1.2                     # For password hashing
 
-# Observability & Testing
+# Testing
+pytest==8.2.1
+pytest-cov==5.0.0
+pytest-asyncio==0.23.6
+pytest-mock==3.14.0
+httpx==0.27.0
+
+# Enterprise Features
+celery==5.4.0
+minio==7.2.7
+presidio-analyzer>=2.2.0
+presidio-anonymizer>=2.2.0
+datasketch>=1.6.0
+redisvl>=0.1.0
 langfuse>=2.0.0
-pytest==7.4.3
-ragas==0.0.21
+prometheus-fastapi-instrumentator>=6.0.0
+slowapi>=0.1.9
+ragas>=0.1.0
+llama-index>=0.10.0
+unstructured[pdf,xlsx]>=0.13.0
+spacy>=3.7.0
