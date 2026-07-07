@@ -1,12 +1,23 @@
 import requests
 import re
+import logging
 from typing import List, Dict, Any, Tuple
 from config import Config
+
+from langfuse import Langfuse
+from langfuse.decorators import observe, langfuse_context
+
+logger = logging.getLogger(__name__)
 
 class LLMService:
     def __init__(self):
         self.ollama_url = f"{Config.OLLAMA_HOST}/api/generate"
+        try:
+            self.langfuse = Langfuse()
+        except Exception as e:
+            logger.error(f"Failed to init Langfuse: {e}")
 
+    @observe(as_type="generation")
     def call_ollama(self, prompt: str, system_prompt: str) -> str:
         payload = {
             "model": Config.MODEL_NAME,
@@ -17,14 +28,26 @@ class LLMService:
                 "temperature": 0.0  # Set temperature to 0 for factual consistency
             }
         }
+        langfuse_context.update_current_observation(
+            model=Config.MODEL_NAME,
+            input=[{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}]
+        )
         try:
             response = requests.post(self.ollama_url, json=payload, timeout=60)
             response.raise_for_status()
-            return response.json().get("response", "").strip()
+            result = response.json().get("response", "").strip()
+            langfuse_context.update_current_observation(output=result)
+            return result
         except Exception as e:
-            print(f"Ollama API call failed: {e}")
+            logger.error(f"Ollama API call failed: {e}")
             return f"Error: Unable to reach the LLM service at {Config.OLLAMA_HOST}. Make sure Ollama is running and the model {Config.MODEL_NAME} is pulled."
 
+    @observe(as_type="generation")
+    def generate_hyde(self, query_text: str) -> str:
+        system_prompt = "You are an expert. Write a brief, hypothetical answer to the user's question. Focus on the expected vocabulary and structure."
+        return self.call_ollama(query_text, system_prompt)
+
+    @observe(as_type="generation")
     def generate_answer(self, query_text: str, retrieved_chunks: List[Dict[str, Any]]) -> Tuple[str, List[str]]:
         """
         Formats the prompt, calls the LLM, and validates citations.
@@ -32,6 +55,10 @@ class LLMService:
         """
         if not retrieved_chunks:
             return "I could not find any relevant information in the company documents that you are authorized to see.", []
+            
+        # Confidence Gate: If the top retrieved chunk has a very low reranker score, refuse to answer
+        if retrieved_chunks[0].get("rerank_score", 0.0) < -3.0:
+            return "I don't have enough confident context to answer this question accurately.", []
 
         # 1. Build the context string
         context_items = []
@@ -87,7 +114,7 @@ class LLMService:
             validated_answer = re.sub(rf"\[Source:\s*{re.escape(invalid)}\]", "", validated_answer)
             
         if invalid_citations:
-            print(f"Warning: Removed hallucinated citations: {invalid_citations}")
+            logger.warning(f"Warning: Removed hallucinated citations: {invalid_citations}")
 
         # Clean up any double spaces resulting from removals
         validated_answer = re.sub(r'\s+', ' ', validated_answer).strip()
