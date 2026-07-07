@@ -1,7 +1,7 @@
 # Final Design Doc: AskTheCompany — Enterprise RAG over Multimodal Dirty Data
 **Problem Code:** E3  
 **Segment:** LLM Systems & Applied GenAI  
-**Author:** [Your Name]  
+**Author:** Manohar Konala  
 **Target Roles:** LLM Engineer, AI Product Engineer, GenAI Infrastructure Engineer  
 
 > **🔓 100% Open-Source Stack — Zero Vendor Lock-In.**  
