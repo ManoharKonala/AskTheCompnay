@@ -1,8 +1,15 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+import os
+import logging
+from functools import lru_cache
+from fastapi import FastAPI, Depends, HTTPException, status, Query, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
+
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from config import Config
 from src.db.connection import get_db, init_dbs
@@ -11,34 +18,53 @@ from src.auth.jwt import get_password_hash, verify_password, create_access_token
 from src.ingestion.pipeline import IngestionPipeline
 from src.retrieval.search import SearchService
 from src.retrieval.llm import LLMService
+from prometheus_fastapi_instrumentator import Instrumentator
+import uuid
+from minio import Minio
+from src.celery_app import ingest_file_task
+
+logger = logging.getLogger(__name__)
+
+# Rate limiter
+limiter = Limiter(key_func=get_remote_address)
 
 app = FastAPI(title="AskTheCompany API", version="1.0")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Instrument FastAPI with Prometheus
+Instrumentator().instrument(app).expose(app)
+
+# Initialize MinIO client
+minio_client = Minio(
+    Config.MINIO_ENDPOINT,
+    access_key=Config.MINIO_ACCESS_KEY,
+    secret_key=Config.MINIO_SECRET_KEY,
+    secure=Config.MINIO_SECURE
+)
+# Create bucket if it doesn't exist
+try:
+    if not minio_client.bucket_exists("documents"):
+        minio_client.make_bucket("documents")
+except Exception as e:
+    logger.warning(f"MinIO initialization error: {e}")
+
 
 # OAuth2 scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
 
-# Initialize services lazily
-pipeline_service = None
-search_service = None
-llm_service = None
-
+# Thread-safe singleton service initialization using lru_cache
+@lru_cache(maxsize=1)
 def get_pipeline():
-    global pipeline_service
-    if pipeline_service is None:
-        pipeline_service = IngestionPipeline()
-    return pipeline_service
+    return IngestionPipeline()
 
-def get_search_service():
-    global search_service
-    if search_service is None:
-        search_service = SearchService()
-    return search_service
-
+@lru_cache(maxsize=1)
 def get_llm_service():
-    global llm_service
-    if llm_service is None:
-        llm_service = LLMService()
-    return llm_service
+    return LLMService()
+
+@lru_cache(maxsize=1)
+def get_search_service():
+    return SearchService(llm_service=get_llm_service())
 
 # ==========================================
 # Pydantic Schemas
@@ -49,7 +75,7 @@ class UserRegister(BaseModel):
     groups: List[str]
 
 class QueryRequest(BaseModel):
-    query: str
+    query: str = Field(..., min_length=1, max_length=2000, description="Query text (max 2000 chars)")
 
 class QueryResponse(BaseModel):
     answer: str
@@ -73,12 +99,18 @@ def get_current_user_payload(token: str = Depends(oauth2_scheme)) -> Dict[str, A
 # ==========================================
 # Routes
 # ==========================================
-@app.on_event("startup")
-def on_startup():
-    init_dbs()
+from contextlib import asynccontextmanager
 
-@app.post("/auth/register", status_code=status.HTTP_211_ALREADY_REPORTED or status.HTTP_201_CREATED)
-def register(user_data: UserRegister, db: Session = Depends(get_db)):
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_dbs()
+    yield
+
+app.router.lifespan_context = lifespan
+
+@app.post("/auth/register", status_code=status.HTTP_201_CREATED)
+@limiter.limit("5/minute")
+def register(request: Request, user_data: UserRegister, db: Session = Depends(get_db)):
     # Check if user already exists
     existing_user = db.query(User).filter(User.username == user_data.username).first()
     if existing_user:
@@ -98,7 +130,8 @@ def register(user_data: UserRegister, db: Session = Depends(get_db)):
     return {"message": "User registered successfully"}
 
 @app.post("/auth/token")
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == form_data.username).first()
     if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(
@@ -112,15 +145,85 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
-@app.post("/ingest", status_code=status.HTTP_200_OK)
-def trigger_ingestion(pipeline: IngestionPipeline = Depends(get_pipeline)):
+@app.get("/health", status_code=status.HTTP_200_OK)
+def health_check(db: Session = Depends(get_db)):
+    health_status = {
+        "postgres": False,
+        "qdrant": False,
+        "redis": False
+    }
+    
+    # Check Postgres
     try:
-        pipeline.run_ingestion(r"c:\Users\konal\RAG-Futurense\data\seed")
-        return {"status": "success", "message": "Seed data ingestion completed successfully."}
+        from sqlalchemy import text
+        db.execute(text("SELECT 1"))
+        health_status["postgres"] = True
+    except Exception:
+        pass
+
+    # Check Qdrant
+    try:
+        from src.db.connection import qdrant_client
+        qdrant_client.get_collections()
+        health_status["qdrant"] = True
+    except Exception:
+        pass
+        
+    # Check Redis
+    try:
+        from src.retrieval.search import redis_client, redis_connected
+        if redis_connected and redis_client.ping():
+            health_status["redis"] = True
+    except Exception:
+        pass
+        
+    return health_status
+
+@app.post("/ingest", status_code=status.HTTP_200_OK)
+def trigger_ingestion(user_payload: Dict[str, Any] = Depends(get_current_user_payload)):
+    # Requires authentication to prevent unauthorized ingestion
+    try:
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        seed_dir = os.path.join(project_root, 'data', 'seed')
+        
+        # Subdirectories map to source types
+        source_mapping = {
+            "confluence": "confluence",
+            "slack": "slack",
+            "excel": "excel",
+            "pdfs": "pdf"
+        }
+        
+        task_ids = []
+        for folder_name, source_type in source_mapping.items():
+            folder_path = os.path.join(seed_dir, folder_name)
+            if not os.path.exists(folder_path):
+                continue
+                
+            for root, _, files in os.walk(folder_path):
+                for file in files:
+                    filepath = os.path.join(root, file)
+                    if file.startswith("~$") or file.startswith("temp_"):
+                        continue
+                    
+                    # Upload to MinIO
+                    object_name = f"{uuid.uuid4()}_{file}"
+                    try:
+                        minio_client.fput_object("documents", object_name, filepath)
+                    except Exception as e:
+                        logger.warning(f"Failed to upload {file} to MinIO: {e}")
+                        
+                    # Dispatch Celery task
+                    # In a fully distributed system, we would pass the MinIO object name.
+                    # Here we pass the local filepath for simplicity since Celery runs locally.
+                    task = ingest_file_task.delay(filepath, source_type)
+                    task_ids.append(task.id)
+                    
+        return {"status": "success", "message": f"Dispatched {len(task_ids)} ingestion tasks to Celery.", "tasks": task_ids}
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Ingestion failed: {str(e)}"
+            detail=f"Ingestion dispatch failed: {str(e)}"
         )
 
 @app.post("/query", response_model=QueryResponse)
@@ -202,3 +305,37 @@ def query_rag(
         retrieved_chunks=retrieved_chunks,
         cached=False
     )
+
+@app.get("/admin/logs", status_code=status.HTTP_200_OK)
+def get_audit_logs(
+    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    limit: int = Query(50, ge=1, le=500, description="Max records to return"),
+    user_payload: Dict[str, Any] = Depends(get_current_user_payload),
+    db: Session = Depends(get_db)
+):
+    # Check if user is in admin group
+    user_groups = user_payload.get("groups", [])
+    if "admin" not in user_groups:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required"
+        )
+        
+    logs = db.query(AuditLog).order_by(AuditLog.timestamp.desc()).offset(skip).limit(limit).all()
+    total = db.query(AuditLog).count()
+    return {
+        "total": total,
+        "skip": skip,
+        "limit": limit,
+        "logs": [
+            {
+                "id": log.id,
+                "user_id": log.user_id,
+                "query": log.query,
+                "response": log.response,
+                "timestamp": log.timestamp.isoformat(),
+                "retrieved_chunks": log.retrieved_chunks
+            }
+            for log in logs
+        ]
+    }
