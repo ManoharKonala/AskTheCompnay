@@ -2,13 +2,21 @@ import os
 import sys
 import json
 
+# Polyfill for ragas 0.1.x on Langchain 0.3.x
+import pydantic.v1 as pydantic_v1
+import langchain_core
+import langchain
+langchain_core.pydantic_v1 = pydantic_v1
+sys.modules['langchain_core.pydantic_v1'] = pydantic_v1
+langchain.pydantic_v1 = pydantic_v1
+sys.modules['langchain.pydantic_v1'] = pydantic_v1
+
 # Add project root to path
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(PROJECT_ROOT)
 
 from datasets import Dataset
 from ragas import evaluate
-from ragas.metrics import faithfulness, answer_relevancy, context_recall
 from llama_index.core import SimpleDirectoryReader
 from config import Config
 
@@ -21,7 +29,9 @@ def run_evaluation():
     except Exception as e:
         print(f"Failed to load documents with LlamaIndex: {e}")
 
-    # Dummy test dataset for evaluation
+    from ragas.metrics import faithfulness, answer_relevancy, context_recall
+    
+    # Dummy test dataset for evaluation (Ragas 0.1.x format)
     data = {
         "question": ["What is the annual leave policy?"],
         "answer": ["Employees are entitled to 20 days of paid annual leave."],
@@ -33,18 +43,17 @@ def run_evaluation():
     
     print("Running RAGAS evaluation with local models...")
     try:
-        # RAGAS requires Langchain wrappers for custom local models
         from langchain_community.llms import Ollama
         from langchain_community.embeddings import HuggingFaceEmbeddings
         
-        llm = Ollama(model=Config.MODEL_NAME, base_url=Config.OLLAMA_HOST)
-        embeddings = HuggingFaceEmbeddings(model_name="BAAI/bge-m3")
+        base_llm = Ollama(model=Config.MODEL_NAME, base_url=Config.OLLAMA_HOST)
+        base_embeddings = HuggingFaceEmbeddings(model_name="BAAI/bge-m3")
         
         result = evaluate(
             dataset=dataset,
             metrics=[faithfulness, answer_relevancy, context_recall],
-            llm=llm,
-            embeddings=embeddings,
+            llm=base_llm,
+            embeddings=base_embeddings,
             raise_exceptions=False
         )
         print("\n=== RAGAS Evaluation Results ===")
