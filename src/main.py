@@ -1,7 +1,7 @@
 import os
 import logging
 from functools import lru_cache
-from fastapi import FastAPI, Depends, HTTPException, status, Query, Request
+from fastapi import FastAPI, Depends, HTTPException, status, Query, Request, UploadFile, File
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
@@ -72,6 +72,8 @@ def get_search_service():
 class UserRegister(BaseModel):
     username: str
     password: str
+
+class UserUpdateGroups(BaseModel):
     groups: List[str]
 
 class QueryRequest(BaseModel):
@@ -123,7 +125,7 @@ def register(request: Request, user_data: UserRegister, db: Session = Depends(ge
     user = User(
         username=user_data.username,
         hashed_password=hashed_password,
-        groups=user_data.groups
+        groups=["Public"]
     )
     db.add(user)
     db.commit()
@@ -144,6 +146,25 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db
         data={"sub": user.username, "groups": user.groups}
     )
     return {"access_token": access_token, "token_type": "bearer"}
+
+@app.put("/admin/users/{username}/groups", status_code=status.HTTP_200_OK)
+def update_user_groups(
+    username: str, 
+    group_data: UserUpdateGroups, 
+    db: Session = Depends(get_db), 
+    current_user: dict = Depends(get_current_user_payload)
+):
+    if "admin" not in current_user.get("groups", []):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required"
+        )
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    user.groups = group_data.groups
+    db.commit()
+    return {"message": f"Updated groups for {username}"}
 
 @app.get("/health", status_code=status.HTTP_200_OK)
 def health_check(db: Session = Depends(get_db)):
@@ -224,6 +245,48 @@ def trigger_ingestion(user_payload: Dict[str, Any] = Depends(get_current_user_pa
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Ingestion dispatch failed: {str(e)}"
+        )
+
+@app.post("/ingest/file", status_code=status.HTTP_200_OK)
+async def upload_and_ingest(file: UploadFile = File(...), user_payload: Dict[str, Any] = Depends(get_current_user_payload)):
+    try:
+        # Infer source type
+        ext = os.path.splitext(file.filename)[1].lower()
+        source_mapping = {
+            ".md": "confluence",
+            ".json": "slack",
+            ".csv": "excel",
+            ".xlsx": "excel",
+            ".pdf": "pdf"
+        }
+        source_type = source_mapping.get(ext)
+        if not source_type:
+            raise HTTPException(status_code=400, detail=f"Unsupported file extension {ext}")
+            
+        object_name = f"{uuid.uuid4()}_{file.filename}"
+        
+        # Save to a temporary file to upload to MinIO
+        import tempfile
+        import shutil
+        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            shutil.copyfileobj(file.file, temp_file)
+            temp_filepath = temp_file.name
+            
+        try:
+            minio_client.fput_object("documents", object_name, temp_filepath)
+        finally:
+            os.remove(temp_filepath)
+            
+        # Dispatch Celery task with the MinIO object name
+        task = ingest_file_task.delay(f"minio://documents/{object_name}", source_type)
+        
+        return {"status": "success", "message": "File uploaded and task dispatched.", "task": task.id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Upload failed: {str(e)}"
         )
 
 @app.post("/query", response_model=QueryResponse)

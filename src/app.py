@@ -269,17 +269,36 @@ with tabs[1]:
         st.markdown("#### Ingestion Control")
         st.write("Trigger the ingestion pipeline to parse all files in `data/seed` and upsert them to Qdrant and PostgreSQL.")
         
-        if st.button("🚀 Trigger Ingestion"):
-            with st.spinner("Running ingestion pipeline (parsing, OCR, embedding)..."):
+        if st.button("🚀 Trigger Seed Ingestion"):
+            with st.spinner("Running ingestion pipeline on seed data..."):
                 try:
-                    res = requests.post(f"{API_URL}/ingest")
+                    headers = {"Authorization": f"Bearer {st.session_state.token}"}
+                    res = requests.post(f"{API_URL}/ingest", headers=headers)
                     if res.status_code == 200:
-                        st.success("Ingestion completed successfully!")
+                        st.success("Ingestion dispatched successfully!")
                         st.json(res.json())
                     else:
-                        st.error("Ingestion failed.")
+                        st.error(f"Ingestion failed: {res.status_code}")
                 except Exception as e:
                     st.error(f"Connection error: {e}")
+                    
+        st.markdown("#### Upload Document")
+        st.write("Upload a new file (PDF, Excel, Slack JSON, MD) directly.")
+        uploaded_file = st.file_uploader("Choose a file")
+        if uploaded_file is not None:
+            if st.button("📤 Upload & Ingest"):
+                with st.spinner("Uploading file..."):
+                    try:
+                        headers = {"Authorization": f"Bearer {st.session_state.token}"}
+                        files = {"file": (uploaded_file.name, uploaded_file.getvalue())}
+                        res = requests.post(f"{API_URL}/ingest/file", headers=headers, files=files)
+                        if res.status_code == 200:
+                            st.success("File uploaded and task dispatched!")
+                            st.json(res.json())
+                        else:
+                            st.error(f"Upload failed: {res.status_code} - {res.text}")
+                    except Exception as e:
+                        st.error(f"Connection error: {e}")
                     
     with col2:
         st.markdown("#### Database Inspection")

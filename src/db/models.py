@@ -22,6 +22,8 @@ class Document(Base):
     filename = Column(String, nullable=False)
     source_type = Column(String, nullable=False)  # "confluence", "slack", "excel", "pdf"
     filepath = Column(String, nullable=False)
+    version = Column(Integer, default=1, nullable=False)
+    is_active = Column(Integer, default=1, nullable=False) # 1 for active, 0 for archived/deleted
     created_at = Column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc))
 
     chunks = relationship("DocumentChunk", back_populates="document", cascade="all, delete-orphan")

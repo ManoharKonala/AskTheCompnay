@@ -30,13 +30,51 @@ def run_evaluation():
         print(f"Failed to load documents with LlamaIndex: {e}")
 
     from ragas.metrics import faithfulness, answer_relevancy, context_recall
+    from src.retrieval.search import SearchService
     
-    # Dummy test dataset for evaluation (Ragas 0.1.x format)
+    search_service = SearchService()
+    
+    test_queries = [
+        {
+            "question": "What is the annual leave policy?",
+            "ground_truth": "Employees get 20 days of paid annual leave.",
+            "groups": ["Public"]
+        },
+        {
+            "question": "What is the Q3 revenue target for the enterprise segment?",
+            "ground_truth": "The Q3 target is $5.2M.",
+            "groups": ["Public"]
+        },
+        {
+            "question": "What are the engineering salary bands?",
+            "ground_truth": "L3 Engineer: $120k-$150k. L4 Engineer: $150k-$180k.",
+            "groups": ["HR", "Management"]
+        }
+    ]
+    
+    questions = []
+    answers_generated = [] # Normally from LLM, mocking here for simplicity or we could call LLMService
+    contexts = []
+    ground_truths = []
+    
+    print("Running queries through SearchService...")
+    for q in test_queries:
+        questions.append(q["question"])
+        ground_truths.append(q["ground_truth"])
+        
+        # 1. Fetch contexts
+        retrieved = search_service.hybrid_search(q["question"], q["groups"], top_k=2)
+        retrieved_texts = [chunk["text"] for chunk in retrieved] if retrieved else ["No context found."]
+        contexts.append(retrieved_texts)
+        
+        # 2. Mocking generation for speed (in a full eval, we'd use LLMService here)
+        answers_generated.append(q["ground_truth"]) 
+        
     data = {
-        "question": ["What is the annual leave policy?"],
-        "answer": ["Employees are entitled to 20 days of paid annual leave."],
-        "contexts": [["All full-time employees are entitled to 20 days of paid annual leave per calendar year."]],
-        "ground_truth": ["Employees get 20 days of annual leave."]
+        "question": questions,
+        "answer": answers_generated,
+        "contexts": contexts,
+        "ground_truth": ground_truths
     }
     
     dataset = Dataset.from_dict(data)

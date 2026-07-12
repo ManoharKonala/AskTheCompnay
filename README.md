@@ -1,5 +1,5 @@
-# AskTheCompany: Enterprise RAG over Multimodal Dirty Data
-> 🔓 **100% Open-Source** production-grade RAG pipeline handling scanned PDFs, Excel tables, Slack threads, and Confluence docs — with role-based access control (ACL), PII redaction, semantic caching, and full observability. **Zero paid APIs. Zero vendor lock-in.**
+# AskTheCompany (Enterprise Edition): Zero-Trust RAG Platform
+> 🔓 **100% Open-Source, Kubernetes-Native** distributed semantic search engine designed for Fortune 500 companies in highly regulated sectors (finance, healthcare, defense). Features payload-level Access Control Lists (ACLs), automated PII redaction, advanced MinHash deduplication, and cross-encoder reranking. **Zero cloud data exfiltration. Zero vendor lock-in.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/release/python-3110/)
@@ -8,19 +8,20 @@
 
 ---
 
-## 🎥 Demo
-* **Live App URL:** Local Deployment Only (`http://localhost:8501`)
+## 🎥 Demo & Vision
+* **Architecture Vision:** A zero-trust, on-premise distributed RAG pipeline integrating with enterprise Identity Providers (Okta/Ping) via OIDC/SAML.
+* **Local MVP App URL:** `http://localhost:8501` (Docker Compose Deployment)
 * **Loom Walkthrough:** Video coming soon
 
 ---
 
-## 📋 Problem Statement
-"BigCorp" has 15 years of internal knowledge scattered across Confluence pages, scanned PDF manuals, Slack export threads, and financial Excel tables. Standard off-the-shelf RAG systems fail to query this data because:
-1. Documents contain complex tables and images requiring OCR.
-2. Multiple versions of the same file exist across different communication channels.
-3. Knowledge is permissioned; an employee in Marketing should not be able to retrieve search results containing salary structures from HR documents.
+## 📋 The Enterprise Problem
+Generative AI is revolutionizing productivity, but highly regulated enterprises are locked out. They cannot legally or safely send their proprietary, classified, or PII-laden data to external API endpoints. Standard off-the-shelf open-source RAG systems fail to bridge this gap because:
+1. They ignore document-level permissions, creating massive insider-threat vulnerabilities (e.g., junior employees querying executive compensation).
+2. They cannot handle complex, dirty enterprise data lakes (scanned PDFs, multi-version Slack exports, massive Excel tables).
+3. They lack multi-tenant vector isolation, dead-letter queues, and scalable GPU inference orchestration.
 
-**AskTheCompany** solves this by building a parsing pipeline that extracts clean layouts, redacts PII, filters duplicates using MinHash, indexes data into a unified hybrid vector index, and enforces strict Access Control Lists (ACLs) at the database level before generating answers with inline citations — all using a 100% open-source stack.
+**AskTheCompany** solves this by building a secure, high-throughput AI infrastructure stack from the ground up. It unifies scattered knowledge using an advanced parsing pipeline, filters duplicates via MinHash LSH, indexes data into a unified hybrid vector index (Qdrant), and strictly enforces Access Control Lists (ACLs) at the database payload level. All while automatically redacting PII before the data ever reaches the embedding model.
 
 ---
 
@@ -34,7 +35,7 @@ graph TD
     
     C --> D{Data Type Router}
     D -->|Images/Scans| E[PaddleOCR / Tesseract]
-    D -->|Tables/Excel| F[LlamaParse / Unstructured.io]
+    D -->|Tables/Excel| F[Unstructured.io]
     D -->|Slack/Text| G[Direct Text Extraction]
     
     E & F & G --> H[Presidio PII Redaction]
@@ -73,12 +74,12 @@ Every component is open source and free to self-host. The system can be deployed
 | **Metadata DB** | `PostgreSQL` | PostgreSQL License | User-Role ACL mappings, doc versioning, audit logs. |
 | **Object Store** | `MinIO` | AGPLv3 | S3-compatible local storage for raw source files. |
 | **OCR** | `PaddleOCR` / `Tesseract` | Apache 2.0 | Layout-aware OCR for scanned PDFs. |
-| **Table Parsing** | `Unstructured.io` / `LlamaParse` (free) | Apache 2.0 / Freemium | Structured table extraction to Markdown. |
+| **Table Parsing** | `Unstructured.io` | Apache 2.0 | Structured table extraction to Markdown. |
 | **Task Queue** | `Celery` + `Redis` | BSD | Async ingestion decoupled from query path. |
 | **PII Redaction** | `Microsoft Presidio` | MIT | Masks 30+ PII entity types before embedding/LLM. |
 | **Re-ranking** | `BGE-Reranker-v2-m3` | MIT | Local cross-encoder reranking on CPU. |
 | **Semantic Cache** | `RedisVL` | MIT | Caches similar queries; ~50ms vs ~5s response. |
-| **Orchestration** | `LlamaIndex` | MIT | Index structures, query routing, multi-doc retrieval. |
+| **Evaluation** | `LlamaIndex` + `RAGAS` | MIT | Orchestrates the evaluation testing pipeline. |
 | **API** | `FastAPI` | MIT | Async API with OpenAPI docs, JWT auth. |
 | **Observability** | `Langfuse` + `Prometheus`/`Grafana` | MIT / Apache 2.0 | LLM tracing + system metrics dashboards. |
 | **UI** | `Streamlit` | Apache 2.0 | Multi-tab: Search, Source Lineage, Admin. |

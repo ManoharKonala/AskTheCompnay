@@ -4,8 +4,7 @@ def test_register_and_login(client):
     # 1. Register
     res = client.post("/auth/register", json={
         "username": "testuser",
-        "password": "testpassword",
-        "groups": ["Engineering"]
+        "password": "testpassword"
     })
     assert res.status_code == 201
     assert res.json() == {"message": "User registered successfully"}
@@ -13,8 +12,7 @@ def test_register_and_login(client):
     # 2. Duplicate registration should fail
     res_dup = client.post("/auth/register", json={
         "username": "testuser",
-        "password": "testpassword",
-        "groups": ["Engineering"]
+        "password": "testpassword"
     })
     assert res_dup.status_code == 400
     
@@ -26,12 +24,11 @@ def test_register_and_login(client):
     assert login_res.status_code == 200
     assert "access_token" in login_res.json()
 
-def test_admin_logs_rbac(client):
+def test_admin_logs_rbac(client, db_session):
     # Register non-admin
     client.post("/auth/register", json={
         "username": "guest",
-        "password": "guestpassword",
-        "groups": ["Public"]
+        "password": "guestpassword"
     })
     token = client.post("/auth/token", data={"username": "guest", "password": "guestpassword"}).json()["access_token"]
     
@@ -42,19 +39,30 @@ def test_admin_logs_rbac(client):
     # Register admin
     client.post("/auth/register", json={
         "username": "admin",
-        "password": "adminpassword",
-        "groups": ["admin"]
+        "password": "adminpassword"
     })
+    
+    # Elevate via DB directly since we need an admin to make an admin
+    from src.db.models import User
+    admin_user = db_session.query(User).filter(User.username == "admin").first()
+    admin_user.groups = ["admin"]
+    db_session.commit()
+
     admin_token = client.post("/auth/token", data={"username": "admin", "password": "adminpassword"}).json()["access_token"]
     
     # Admin access should succeed
     res_admin = client.get("/admin/logs", headers={"Authorization": f"Bearer {admin_token}"})
     assert res_admin.status_code == 200
-    assert isinstance(res_admin.json(), list)
+    assert isinstance(res_admin.json(), dict)
 
-def test_ingest_endpoint(client, mock_celery):
+def test_ingest_endpoint(client, db_session, mock_celery):
     # Register & Login
-    client.post("/auth/register", json={"username": "ingestor", "password": "pw", "groups": ["admin"]})
+    client.post("/auth/register", json={"username": "ingestor", "password": "pw"})
+    from src.db.models import User
+    user = db_session.query(User).filter(User.username == "ingestor").first()
+    user.groups = ["admin"]
+    db_session.commit()
+    
     token = client.post("/auth/token", data={"username": "ingestor", "password": "pw"}).json()["access_token"]
     
     res = client.post("/ingest", headers={"Authorization": f"Bearer {token}"})
@@ -72,7 +80,7 @@ def test_query_endpoint(client, mocker):
     mock_llm.return_value.generate_answer.return_value = ("Hello World", ["bar"])
     
     # Login
-    client.post("/auth/register", json={"username": "asker", "password": "pw", "groups": ["Public"]})
+    client.post("/auth/register", json={"username": "asker", "password": "pw"})
     token = client.post("/auth/token", data={"username": "asker", "password": "pw"}).json()["access_token"]
     
     # Run query

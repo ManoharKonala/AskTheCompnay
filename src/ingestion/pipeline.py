@@ -70,17 +70,50 @@ class IngestionPipeline:
         return rest.SparseVector(indices=[], values=[])
 
     def ingest_file(self, db: Session, filepath: str, source_type: str):
+        is_temp = False
+        actual_filepath = filepath
         filename = os.path.basename(filepath)
+        
+        if filepath.startswith("minio://"):
+            parts = filepath.replace("minio://", "").split("/")
+            bucket_name = parts[0]
+            object_name = "/".join(parts[1:])
+            filename = object_name
+            
+            import tempfile
+            from minio import Minio
+            from config import Config
+            minio_client = Minio(
+                Config.MINIO_ENDPOINT,
+                access_key=Config.MINIO_ACCESS_KEY,
+                secret_key=Config.MINIO_SECRET_KEY,
+                secure=Config.MINIO_SECURE
+            )
+            _, ext = os.path.splitext(object_name)
+            temp_fd, temp_path = tempfile.mkstemp(suffix=ext)
+            os.close(temp_fd)
+            minio_client.fget_object(bucket_name, object_name, temp_path)
+            actual_filepath = temp_path
+            is_temp = True
+
         logger.info(f"Parsing {filename} ({source_type})...")
         
         parser = self.parsers.get(source_type)
         if not parser:
             logger.error(f"No parser found for source type: {source_type}")
+            if is_temp: os.remove(actual_filepath)
             return
             
-        chunks_data = parser.parse(filepath)
+        try:
+            chunks_data = parser.parse(actual_filepath)
+        except Exception as e:
+            logger.error(f"Failed to parse {filename}: {e}")
+            if is_temp: os.remove(actual_filepath)
+            return
+            
         if not chunks_data:
             logger.warning(f"No text extracted from {filename}")
+            if is_temp: os.remove(actual_filepath)
             return
             
         # MinHash Deduplication
@@ -110,6 +143,7 @@ class IngestionPipeline:
         
         if not chunks_data:
             logger.warning(f"No unique chunks found in {filename} after deduplication.")
+            if is_temp: os.remove(actual_filepath)
             return
             
         logger.info(f"Extracted {len(chunks_data)} chunks. Generating embeddings...")
@@ -130,17 +164,21 @@ class IngestionPipeline:
         dense_vecs = embeddings_output['dense_vecs']
         sparse_vecs = embeddings_output['lexical_weights']
         
-        # 1. Save Document metadata in PostgreSQL
-        # If document already exists, delete it and its chunks to avoid duplicates (re-ingestion)
-        existing_doc = db.query(Document).filter(Document.filepath == filepath).first()
+        # 1. Save Document metadata in PostgreSQL (Versioning)
+        existing_doc = db.query(Document).filter(Document.filename == filename, Document.source_type == source_type).order_by(Document.version.desc()).first()
+        
+        new_version = 1
         if existing_doc:
-            db.delete(existing_doc)
+            new_version = existing_doc.version + 1
+            existing_doc.is_active = 0
             db.commit()
             
         doc = Document(
             filename=filename,
             source_type=source_type,
-            filepath=filepath
+            filepath=filepath, # Keep the original reference path
+            version=new_version,
+            is_active=1
         )
         db.add(doc)
         db.commit()
@@ -157,8 +195,7 @@ class IngestionPipeline:
                 allowed_groups=chunk_data["allowed_groups"]
             )
             db.add(db_chunk)
-            db.commit()
-            db.refresh(db_chunk)
+            db.flush() # Batch DB insert instead of commit
             
             # Prepare Qdrant sparse vector
             qdrant_sparse = self.get_sparse_vector(sparse_vecs[idx])
@@ -188,6 +225,13 @@ class IngestionPipeline:
                 points=points
             )
             logger.info(f"Successfully ingested {len(points)} chunks into Postgres and Qdrant.")
+            
+        db.commit() # Single commit for all chunks
+        if is_temp: 
+            try:
+                os.remove(actual_filepath)
+            except Exception as e:
+                logger.warning(f"Could not remove temp file {actual_filepath}: {e}")
 
     def run_ingestion(self, data_dir: str):
         db = SessionLocal()

@@ -141,6 +141,9 @@ class ExcelCSVParser(BaseParser):
         allowed_groups = ["Public"]
         if "salary" in filename_lower or "payroll" in filename_lower or "financial" in filename_lower:
             allowed_groups = ["HR", "Management", "Finance"]
+            logger.info(f"Assigned restricted ACLs {allowed_groups} to {filepath} based on filename heuristics.")
+        else:
+            logger.warning(f"File {filepath} did not match any restricted keyword heuristics. Defaulting to Public ACL.")
             
         for idx, chunk in enumerate(chunks_elements):
             text = str(chunk)
