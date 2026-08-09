@@ -50,3 +50,14 @@ class AuditLog(Base):
     timestamp = Column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc))
 
     user = relationship("User", back_populates="logs")
+
+class FailedIngestion(Base):
+    __tablename__ = "failed_ingestions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    filepath = Column(String, nullable=False)
+    source_type = Column(String, nullable=False)
+    error_message = Column(Text, nullable=False)
+    retry_count = Column(Integer, default=0, nullable=False)
+    status = Column(String, default="FAILED", nullable=False)  # "FAILED", "RETRIED", "RESOLVED"
+    created_at = Column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc))
