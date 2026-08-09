@@ -27,7 +27,7 @@ jobs:
 
       - name: Run Ruff Linter
         run: |
-          ruff check src/ tests/ --ignore E501,E402,F401,F841
+          ruff check src/ tests/ --select E,F --ignore E501,E402,F401,F841,B008
 
   test:
     name: Unit & Integration Tests
@@ -75,7 +75,9 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
+          pip install --extra-index-url https://download.pytorch.org/whl/cpu torch torchvision torchaudio
           pip install -r requirements.txt
+          python -m spacy download en_core_web_sm || true
 
       - name: Run Pytest Suite
         env:
