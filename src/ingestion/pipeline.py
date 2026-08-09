@@ -101,19 +101,22 @@ class IngestionPipeline:
         parser = self.parsers.get(source_type)
         if not parser:
             logger.error(f"No parser found for source type: {source_type}")
-            if is_temp: os.remove(actual_filepath)
+            if is_temp:
+                os.remove(actual_filepath)
             return
             
         try:
             chunks_data = parser.parse(actual_filepath)
         except Exception as e:
             logger.error(f"Failed to parse {filename}: {e}")
-            if is_temp: os.remove(actual_filepath)
+            if is_temp:
+                os.remove(actual_filepath)
             return
             
         if not chunks_data:
             logger.warning(f"No text extracted from {filename}")
-            if is_temp: os.remove(actual_filepath)
+            if is_temp:
+                os.remove(actual_filepath)
             return
             
         # MinHash Deduplication
@@ -143,7 +146,8 @@ class IngestionPipeline:
         
         if not chunks_data:
             logger.warning(f"No unique chunks found in {filename} after deduplication.")
-            if is_temp: os.remove(actual_filepath)
+            if is_temp:
+                os.remove(actual_filepath)
             return
             
         logger.info(f"Extracted {len(chunks_data)} chunks. Generating embeddings...")
