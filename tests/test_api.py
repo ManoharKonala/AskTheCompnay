@@ -1,5 +1,3 @@
-import pytest
-
 def test_register_and_login(client):
     # 1. Register
     res = client.post("/auth/register", json={
@@ -74,17 +72,19 @@ def test_ingest_endpoint(client, db_session):
         assert mock_celery.called
 
 def test_query_endpoint(client):
-    # We mock SearchService and LLMService internally to avoid loading heavy models during API tests
-    with patch("src.main.get_search_service") as mock_get_search, patch("src.main.get_llm_service") as mock_get_llm:
-        mock_search = MagicMock()
-        mock_search.semantic_cache_lookup.return_value = None
-        mock_search.search.return_value = [{"id": 1, "text": "foo", "filename": "bar", "source_type": "pdf", "allowed_groups": ["Public"]}]
-        mock_get_search.return_value = mock_search
-        
-        mock_llm = MagicMock()
-        mock_llm.generate_answer.return_value = ("Hello World", ["bar"])
-        mock_get_llm.return_value = mock_llm
-        
+    from src.main import app, get_search_service, get_llm_service
+    
+    mock_search = MagicMock()
+    mock_search.semantic_cache_lookup.return_value = None
+    mock_search.search.return_value = [{"id": 1, "text": "foo", "filename": "bar", "source_type": "pdf", "allowed_groups": ["Public"]}]
+    
+    mock_llm = MagicMock()
+    mock_llm.generate_answer.return_value = ("Hello World", ["bar"])
+    
+    app.dependency_overrides[get_search_service] = lambda: mock_search
+    app.dependency_overrides[get_llm_service] = lambda: mock_llm
+    
+    try:
         # Login
         client.post("/auth/register", json={"username": "asker", "password": "pw"})
         token = client.post("/auth/token", data={"username": "asker", "password": "pw"}).json()["access_token"]
@@ -96,6 +96,9 @@ def test_query_endpoint(client):
         assert data["answer"] == "Hello World"
         assert data["citations"] == ["bar"]
         assert data["cached"] is False
+    finally:
+        app.dependency_overrides.pop(get_search_service, None)
+        app.dependency_overrides.pop(get_llm_service, None)
 
 def test_dlq_endpoints(client, db_session, mock_celery):
     from src.db.models import User, FailedIngestion
@@ -132,7 +135,6 @@ def test_dlq_endpoints(client, db_session, mock_celery):
     assert mock_celery.called
 
 def test_upload_file_endpoint(client, db_session, mock_celery):
-    from src.db.models import User
     client.post("/auth/register", json={"username": "uploader", "password": "pw"})
     token = client.post("/auth/token", data={"username": "uploader", "password": "pw"}).json()["access_token"]
     
