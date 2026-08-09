@@ -4,18 +4,63 @@ import logging
 from typing import List, Dict, Any, Tuple
 from config import Config
 
-from langfuse import Langfuse
-from langfuse.decorators import observe, langfuse_context
+try:
+    from langfuse import Langfuse
+    from langfuse.decorators import observe, langfuse_context
+except ImportError:
+    class Langfuse:
+        def __init__(self, *args, **kwargs):
+            pass
+    def observe(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+    class _DummyLangfuseContext:
+        def update_current_observation(self, *args, **kwargs):
+            pass
+    langfuse_context = _DummyLangfuseContext()
 
 logger = logging.getLogger(__name__)
 
 class LLMService:
     def __init__(self):
         self.ollama_url = f"{Config.OLLAMA_HOST}/api/generate"
+        self.vllm_url = f"{Config.VLLM_API_URL.rstrip('/')}/chat/completions"
         try:
             self.langfuse = Langfuse()
         except Exception as e:
             logger.error(f"Failed to init Langfuse: {e}")
+
+    @observe(as_type="generation")
+    def call_vllm(self, prompt: str, system_prompt: str) -> str:
+        """Calls vLLM server via its OpenAI-compatible /v1/chat/completions endpoint."""
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {Config.VLLM_API_KEY}"
+        }
+        payload = {
+            "model": Config.MODEL_NAME,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.0,
+            "max_tokens": 1024
+        }
+        langfuse_context.update_current_observation(
+            model=Config.MODEL_NAME,
+            input=[{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}]
+        )
+        try:
+            response = requests.post(self.vllm_url, json=payload, headers=headers, timeout=60)
+            response.raise_for_status()
+            data = response.json()
+            result = data["choices"][0]["message"]["content"].strip()
+            langfuse_context.update_current_observation(output=result)
+            return result
+        except Exception as e:
+            logger.error(f"vLLM API call failed: {e}")
+            return f"Error: Unable to reach vLLM service at {Config.VLLM_API_URL}. Details: {e}"
 
     @observe(as_type="generation")
     def call_ollama(self, prompt: str, system_prompt: str) -> str:
@@ -42,10 +87,16 @@ class LLMService:
             logger.error(f"Ollama API call failed: {e}")
             return f"Error: Unable to reach the LLM service at {Config.OLLAMA_HOST}. Make sure Ollama is running and the model {Config.MODEL_NAME} is pulled."
 
+    def generate(self, prompt: str, system_prompt: str) -> str:
+        """Unified LLM generation routing to configured backend (Ollama or vLLM)."""
+        if Config.INFERENCE_BACKEND == "vllm":
+            return self.call_vllm(prompt, system_prompt)
+        return self.call_ollama(prompt, system_prompt)
+
     @observe(as_type="generation")
     def generate_hyde(self, query_text: str) -> str:
         system_prompt = "You are an expert. Write a brief, hypothetical answer to the user's question. Focus on the expected vocabulary and structure."
-        return self.call_ollama(query_text, system_prompt)
+        return self.generate(query_text, system_prompt)
 
     @observe(as_type="generation")
     def generate_answer(self, query_text: str, retrieved_chunks: List[Dict[str, Any]]) -> Tuple[str, List[str]]:
@@ -91,7 +142,7 @@ class LLMService:
         )
 
         # 3. Get answer from LLM
-        raw_answer = self.call_ollama(prompt, system_prompt)
+        raw_answer = self.generate(prompt, system_prompt)
 
         # 4. Citation Validation Guardrail
         # Find all citations matching [Source: filename]
