@@ -88,3 +88,32 @@ def mock_celery():
     """Prevent tests from dispatching real Celery tasks."""
     with patch("src.main.ingest_file_task.delay") as m:
         yield m
+
+class MockFixture:
+    def __init__(self):
+        self._patches = []
+    
+    def patch(self, *args, **kwargs):
+        p = patch(*args, **kwargs)
+        mock_obj = p.start()
+        self._patches.append(p)
+        return mock_obj
+
+    def MagicMock(self, *args, **kwargs):
+        return MagicMock(*args, **kwargs)
+
+    def stopall(self):
+        for p in reversed(self._patches):
+            try:
+                p.stop()
+            except Exception:
+                pass
+
+@pytest.fixture
+def mocker():
+    """Universal mocker fixture based on standard unittest.mock."""
+    m = MockFixture()
+    try:
+        yield m
+    finally:
+        m.stopall()
