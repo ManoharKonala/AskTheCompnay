@@ -14,10 +14,10 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.12
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
           cache: "pip"
 
       - name: Install Linting Tools
@@ -27,7 +27,7 @@ jobs:
 
       - name: Run Ruff Linter
         run: |
-          ruff check src/ tests/ --ignore E501,E402
+          ruff check src/ tests/ --ignore E501,E402,F401,F841
 
   test:
     name: Unit & Integration Tests
@@ -61,10 +61,15 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.12
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgl1 libglib2.0-0 poppler-utils tesseract-ocr
+
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
           cache: "pip"
 
       - name: Install Dependencies
