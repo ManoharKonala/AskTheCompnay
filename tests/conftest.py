@@ -66,8 +66,20 @@ def client(db_session):
     app.dependency_overrides.clear()
 
 # ==========================================
-# External Service Mocks
+# External Service Mocks & Test Overrides
 # ==========================================
+
+@pytest.fixture(autouse=True)
+def disable_rate_limiter():
+    """Disable slowapi rate limits during testing to prevent 429 errors."""
+    from src.main import limiter
+    if hasattr(limiter, "enabled"):
+        original_state = limiter.enabled
+        limiter.enabled = False
+        yield
+        limiter.enabled = original_state
+    else:
+        yield
 
 @pytest.fixture(autouse=True)
 def mock_qdrant():
