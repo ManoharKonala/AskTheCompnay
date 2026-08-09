@@ -3,7 +3,10 @@ import json
 import logging
 from typing import List, Dict, Any, Optional
 
-from FlagEmbedding import FlagReranker
+try:
+    from FlagEmbedding import FlagReranker
+except ImportError:
+    FlagReranker = None
 from qdrant_client.http import models as rest
 import redis
 
@@ -23,8 +26,13 @@ class SearchService:
         # Accept injected LLMService to avoid creating a new one per search() call
         self._llm_service = llm_service
             
-        logger.info("Initializing BGE-Reranker model...")
-        self.reranker = FlagReranker('BAAI/bge-reranker-v2-m3', use_fp16=False)
+        self.reranker = None
+        if FlagReranker:
+            try:
+                logger.info("Initializing BGE-Reranker model...")
+                self.reranker = FlagReranker('BAAI/bge-reranker-v2-m3', use_fp16=False)
+            except Exception as e:
+                logger.warning(f"Could not load FlagReranker: {e}")
         
         self.redis_connected = False
         self.redisvl_index = None
@@ -79,7 +87,8 @@ class SearchService:
                 return_sparse=False,
                 return_colbert_vecs=False
             )
-            dense_vector = embeddings['dense_vecs'][0].tolist()
+            raw_dense = embeddings['dense_vecs'][0]
+            dense_vector = raw_dense.tolist() if hasattr(raw_dense, 'tolist') else raw_dense
 
             # 2. RedisVL Vector Query
             query = self.VectorQuery(
@@ -119,7 +128,8 @@ class SearchService:
                 return_sparse=False,
                 return_colbert_vecs=False
             )
-            dense_vector = embeddings['dense_vecs'][0].tolist()
+            raw_dense = embeddings['dense_vecs'][0]
+            dense_vector = raw_dense.tolist() if hasattr(raw_dense, 'tolist') else raw_dense
             
             record = {
                 "query_text": query_text,
@@ -158,23 +168,20 @@ class SearchService:
             return_colbert_vecs=False
         )
         
-        dense_vector = embeddings['dense_vecs'][0].tolist()
+        raw_dense = embeddings['dense_vecs'][0]
+        dense_vector = raw_dense.tolist() if hasattr(raw_dense, 'tolist') else raw_dense
         sparse_weights = embeddings['lexical_weights'][0]
         qdrant_sparse = self.pipeline.get_sparse_vector(sparse_weights)
         
-        # Convert to NamedSparseVector for Qdrant
-        named_sparse = rest.NamedSparseVector(
-            name="text-sparse",
-            vector=rest.SparseVector(
-                indices=qdrant_sparse.indices,
-                values=qdrant_sparse.values
-            )
+        # Build SparseVector for Qdrant prefetch query
+        sparse_query = rest.SparseVector(
+            indices=qdrant_sparse.indices,
+            values=qdrant_sparse.values
         )
         
-        # 2. Build the ACL Filter
-        # A chunk is accessible if its allowed_groups list overlaps with the user's groups
-        # or contains "Public"
-        allowed_list = ["Public"] + user_groups
+        # 2. Build Access Control Filter (ACLs)
+        # Match chunks whose allowed_groups intersect with user_groups OR have 'Public'
+        allowed_list = list(set(user_groups + ["Public"]))
         acl_filter = rest.Filter(
             must=[
                 rest.FieldCondition(
@@ -197,7 +204,7 @@ class SearchService:
                         limit=prefetch_limit
                     ),
                     rest.Prefetch(
-                        query=named_sparse,
+                        query=sparse_query,
                         using="text-sparse",
                         limit=prefetch_limit
                     )
@@ -223,20 +230,27 @@ class SearchService:
         if not retrieved_chunks:
             return []
             
-        # 4. Re-rank the retrieved chunks using BGE-Reranker
-        pairs = [[query_text, chunk["text"]] for chunk in retrieved_chunks]
-        rerank_scores = self.reranker.compute_score(pairs)
-        
-        # If compute_score returns a single float instead of a list (for single pair), wrap it
-        if isinstance(rerank_scores, float):
-            rerank_scores = [rerank_scores]
-            
-        # Add rerank scores to chunks and sort
-        for idx, score in enumerate(rerank_scores):
-            retrieved_chunks[idx]["rerank_score"] = float(score)
-            
-        # Sort chunks by rerank score descending
-        retrieved_chunks.sort(key=lambda x: x["rerank_score"], reverse=True)
+        # 4. Re-rank the retrieved chunks using BGE-Reranker if available
+        if self.reranker:
+            try:
+                pairs = [[query_text, chunk["text"]] for chunk in retrieved_chunks]
+                rerank_scores = self.reranker.compute_score(pairs)
+                
+                # If compute_score returns a single float instead of a list (for single pair), wrap it
+                if isinstance(rerank_scores, float):
+                    rerank_scores = [rerank_scores]
+                    
+                # Add rerank scores to chunks and sort
+                for idx, score in enumerate(rerank_scores):
+                    retrieved_chunks[idx]["rerank_score"] = float(score)
+                    
+                # Sort chunks by rerank score descending
+                retrieved_chunks.sort(key=lambda x: x.get("rerank_score", 0.0), reverse=True)
+            except Exception as e:
+                logger.warning(f"Reranking computation failed: {e}")
+        else:
+            for idx, chunk in enumerate(retrieved_chunks):
+                chunk["rerank_score"] = float(1.0 - (idx * 0.1))
         
         # Return the top-K chunks
         return retrieved_chunks[:limit]
