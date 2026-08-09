@@ -59,6 +59,7 @@ graph TD
     
     V -.- X[Langfuse: LLM Tracing]
     L & O -.- Y[Prometheus + Grafana: Metrics]
+
 ```
 
 ---
