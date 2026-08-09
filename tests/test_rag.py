@@ -1,4 +1,3 @@
-import pytest
 import os
 from src.ingestion.parsers import ConfluenceParser, SlackParser
 from src.auth.jwt import get_password_hash, verify_password, create_access_token, decode_access_token
