@@ -5,9 +5,16 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-# Ensure project root is in path
+# Ensure project root is in path and safe UTF-8 encoding on Windows
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, PROJECT_ROOT)
+
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
 
 from src.main import app
 from src.db.connection import get_db
@@ -49,27 +56,35 @@ def client(db_session):
         yield c
     app.dependency_overrides.clear()
 
+from unittest.mock import patch, MagicMock
+
 # ==========================================
 # External Service Mocks
 # ==========================================
 
 @pytest.fixture(autouse=True)
-def mock_qdrant(mocker):
+def mock_qdrant():
     """Prevent tests from attempting to connect to Qdrant."""
-    return mocker.patch("src.db.connection.qdrant_client")
+    with patch("src.db.connection.qdrant_client") as m:
+        yield m
 
 @pytest.fixture(autouse=True)
-def mock_redis(mocker):
+def mock_redis():
     """Prevent tests from attempting to connect to Redis."""
-    mocker.patch("redis.Redis.from_url")
-    mocker.patch("redisvl.index.SearchIndex")
+    try:
+        with patch("redis.Redis.from_url") as r, patch("redisvl.index.SearchIndex", create=True):
+            yield r
+    except Exception:
+        yield None
 
 @pytest.fixture(autouse=True)
-def mock_minio(mocker):
+def mock_minio():
     """Prevent tests from attempting to connect to MinIO."""
-    return mocker.patch("src.main.minio_client")
+    with patch("src.main.minio_client") as m:
+        yield m
 
 @pytest.fixture(autouse=True)
-def mock_celery(mocker):
+def mock_celery():
     """Prevent tests from dispatching real Celery tasks."""
-    return mocker.patch("src.main.ingest_file_task.delay")
+    with patch("src.main.ingest_file_task.delay") as m:
+        yield m
