@@ -1,4 +1,3 @@
-import pytest
 from src.retrieval.search import SearchService
 
 def test_acl_filter_building(mocker):
@@ -12,10 +11,10 @@ def test_acl_filter_building(mocker):
     # We mock SearchService's initialization of BGE-Reranker and Redis
     mocker.patch("src.retrieval.search.FlagReranker")
     mocker.patch("redis.Redis.from_url")
-    mocker.patch("redisvl.index.SearchIndex")
     
-    mock_qdrant = mocker.patch("src.retrieval.search.qdrant_client.query_points")
-    mock_qdrant.return_value.points = []
+    mock_qdrant = mocker.MagicMock()
+    mock_qdrant.query_points.return_value.points = []
+    mocker.patch("src.retrieval.search.qdrant_client", mock_qdrant)
     
     # We mock the HyDE LLM call
     mock_llm = mocker.patch("src.retrieval.llm.LLMService")
@@ -27,10 +26,10 @@ def test_acl_filter_building(mocker):
     service.search("test query", ["HR"])
     
     # Check that qdrant_client.query_points was called
-    assert mock_qdrant.called
+    assert mock_qdrant.query_points.called
     
     # Inspect the acl_filter that was passed to query_points
-    call_kwargs = mock_qdrant.call_args.kwargs
+    call_kwargs = mock_qdrant.query_points.call_args.kwargs
     query_filter = call_kwargs.get("query_filter")
     
     assert query_filter is not None
