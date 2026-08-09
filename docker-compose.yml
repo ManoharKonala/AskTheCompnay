@@ -54,15 +54,55 @@ services:
       - 8.8.4.4
     restart: always
 
+  # ==========================================
+  # Optional: Enterprise OIDC Identity Provider (Keycloak)
+  # ==========================================
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0
+    command: start-dev
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/askthecompany
+      KC_DB_USERNAME: askthecompany
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-your_secure_password}
+      KC_DB_SCHEMA: keycloak
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  # ==========================================
+  # Optional: High-Throughput vLLM GPU Server
+  # Uncomment when NVIDIA Container Toolkit is available
+  # ==========================================
+  # vllm:
+  #   image: vllm/vllm-openai:latest
+  #   command: --model meta-llama/Meta-Llama-3.1-8B-Instruct --port 8000 --gpu-memory-utilization 0.9
+  #   ports:
+  #     - "8001:8000"
+  #   environment:
+  #     - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-placeholder}
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: 1
+  #             capabilities: [gpu]
+  #   restart: unless-stopped
+
   langfuse:
     image: langfuse/langfuse:2
     depends_on:
       - postgres
     ports:
-      - "3000:3000"
+      - "3002:3000"
     environment:
       - DATABASE_URL=postgresql://askthecompany:${POSTGRES_PASSWORD}@postgres:5432/askthecompany
-      - NEXTAUTH_URL=http://localhost:3000
+      - NEXTAUTH_URL=http://localhost:3002
       - NEXTAUTH_SECRET=mysecret
       - SALT=mysalt
     restart: always
@@ -101,6 +141,8 @@ services:
       - REDIS_URL=redis://redis:6379
       - MINIO_ENDPOINT=minio:9000
       - OLLAMA_HOST=http://ollama:11434
+      - AUTH_MODE=${AUTH_MODE:-local}
+      - INFERENCE_BACKEND=${INFERENCE_BACKEND:-ollama}
     depends_on:
       - postgres
       - qdrant
@@ -122,6 +164,7 @@ services:
       - REDIS_URL=redis://redis:6379
       - MINIO_ENDPOINT=minio:9000
       - OLLAMA_HOST=http://ollama:11434
+      - INFERENCE_BACKEND=${INFERENCE_BACKEND:-ollama}
     depends_on:
       - redis
       - postgres
