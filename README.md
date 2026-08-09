@@ -30,35 +30,35 @@ Generative AI is revolutionizing productivity, but highly regulated enterprises 
 
 ```mermaid
 graph TD
-    A[Data Sources: PDF, Slack, Excel, MD] --> B[FastAPI Ingestion Gateway (Async/Threadpool)]
-    B --> S3[MinIO Object Store]
-    B --> C[Celery + Redis Task Queue with DLQ]
+    A["Data Sources: PDF, Slack, Excel, MD"] --> B["FastAPI Ingestion Gateway (Async/Threadpool)"]
+    B --> S3["MinIO Object Store"]
+    B --> C["Celery + Redis Task Queue with DLQ"]
     
-    C --> D{Data Type Router}
-    D -->|Images/Scans| E[PaddleOCR / Tesseract]
-    D -->|Tables/Excel| F[Unstructured.io]
-    D -->|Slack/Text| G[Direct Text Extraction]
+    C --> D{"Data Type Router"}
+    D -->|Images/Scans| E["PaddleOCR / Tesseract"]
+    D -->|Tables/Excel| F["Unstructured.io"]
+    D -->|Slack/Text| G["Direct Text Extraction"]
     
-    E & F & G --> H[Microsoft Presidio PII Redaction]
-    H --> I[Chunking: Table & Heading Aware]
-    I --> J[MinHash LSH Deduplication Filter]
+    E & F & G --> H["Microsoft Presidio PII Redaction"]
+    H --> I["Chunking: Table & Heading Aware"]
+    I --> J["MinHash LSH Deduplication Filter"]
     
-    J --> K[BGE-M3: Dense + Sparse Vectors]
-    K --> L[Qdrant: Hybrid Index + ACL Payload Filter]
-    J --> M[(PostgreSQL: ACLs, Doc Versions & DLQ)]
+    J --> K["BGE-M3: Dense + Sparse Vectors"]
+    K --> L["Qdrant: Hybrid Index + ACL Payload Filter"]
+    J --> M[("PostgreSQL: ACLs, Doc Versions & DLQ")]
     
-    N[User Query + JWT/OIDC] --> O[FastAPI Query Gateway (Rate Limited)]
-    O --> P{RedisVL Semantic Cache}
-    P -->|Hit| Q[Return Cached Response (<50ms)]
-    P -->|Miss| R[Query Rewriter: HyDE]
-    R --> S[Qdrant Hybrid Search + ACL Filter]
-    S --> T[BGE-Reranker-v2-m3]
-    T --> U[Guardrails: Citation Validator + Confidence Gate]
-    U --> V[Inference Engine: Ollama or vLLM]
-    V --> W[Next.js App / Streamlit UI + Lineage Cards]
+    N["User Query + JWT/OIDC"] --> O["FastAPI Query Gateway (Rate Limited)"]
+    O --> P{"RedisVL Semantic Cache"}
+    P -->|Hit| Q["Return Cached Response (<50ms)"]
+    P -->|Miss| R["Query Rewriter: HyDE"]
+    R --> S["Qdrant Hybrid Search + ACL Filter"]
+    S --> T["BGE-Reranker-v2-m3"]
+    T --> U["Guardrails: Citation Validator + Confidence Gate"]
+    U --> V["Inference Engine: Ollama or vLLM"]
+    V --> W["Next.js App / Streamlit UI + Lineage Cards"]
     
-    V -.- X[Langfuse: LLM Tracing]
-    L & O -.- Y[Prometheus + Grafana: Metrics]
+    V -.- X["Langfuse: LLM Tracing"]
+    L & O -.- Y["Prometheus + Grafana: Metrics"]
 
 ```
 
