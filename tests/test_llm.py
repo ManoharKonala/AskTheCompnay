@@ -13,10 +13,10 @@ def test_confidence_gate(mocker):
     assert citations == []
 
 def test_citation_hallucination_stripping(mocker):
-    # Mock Ollama call to prevent real network request
-    mock_ollama = mocker.patch("src.retrieval.llm.LLMService.call_ollama")
+    # Mock LLM call to prevent real network request
+    mock_gen = mocker.patch("src.retrieval.llm.LLMService.generate")
     # Simulate LLM returning a valid and an invalid citation
-    mock_ollama.return_value = "Here is the answer. [Source: valid.pdf] [Source: hallucinated.pdf]"
+    mock_gen.return_value = "Here is the answer. [Source: valid.pdf] [Source: hallucinated.pdf]"
     
     service = LLMService()
     
