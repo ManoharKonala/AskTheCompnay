@@ -15,7 +15,7 @@ pg8000>=1.30.0
 redis==5.0.1
 
 # Parsers & Processing
-paddlepaddle>=3.0.0     # CPU version default
+paddlepaddle>=2.5.0     # CPU version default
 paddleocr>=2.7.0
 pypdf==4.1.0            # Used in PDFParser
 pypdfium2==4.27.0       # Used for OCR fallback rendering
@@ -47,7 +47,7 @@ prometheus-fastapi-instrumentator>=6.0.0
 slowapi>=0.1.9
 ragas>=0.1.0
 llama-index>=0.10.0
-unstructured[pdf,xlsx]>=0.13.0
+unstructured>=0.13.0
 spacy>=3.7.0
 structlog>=24.1.0
 PyJWT[crypto]>=2.8.0
