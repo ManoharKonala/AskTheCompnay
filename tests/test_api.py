@@ -55,7 +55,9 @@ def test_admin_logs_rbac(client, db_session):
     assert res_admin.status_code == 200
     assert isinstance(res_admin.json(), dict)
 
-def test_ingest_endpoint(client, db_session, mock_celery):
+from unittest.mock import patch, MagicMock
+
+def test_ingest_endpoint(client, db_session):
     # Register & Login
     client.post("/auth/register", json={"username": "ingestor", "password": "pw"})
     from src.db.models import User
@@ -65,28 +67,77 @@ def test_ingest_endpoint(client, db_session, mock_celery):
     
     token = client.post("/auth/token", data={"username": "ingestor", "password": "pw"}).json()["access_token"]
     
-    res = client.post("/ingest", headers={"Authorization": f"Bearer {token}"})
-    assert res.status_code == 200
-    assert "Dispatched" in res.json()["message"]
-    assert mock_celery.called
+    with patch("src.main.ingest_file_task.delay") as mock_celery:
+        res = client.post("/ingest", headers={"Authorization": f"Bearer {token}"})
+        assert res.status_code == 200
+        assert "Dispatched" in res.json()["message"]
+        assert mock_celery.called
 
-def test_query_endpoint(client, mocker):
-    # We mock the SearchService and LLMService internally to avoid loading heavy models during API tests
-    mock_search = mocker.patch("src.main.get_search_service")
-    mock_search.return_value.semantic_cache_lookup.return_value = None
-    mock_search.return_value.search.return_value = [{"id": 1, "text": "foo", "filename": "bar", "source_type": "pdf", "allowed_groups": ["Public"]}]
+def test_query_endpoint(client):
+    # We mock SearchService and LLMService internally to avoid loading heavy models during API tests
+    with patch("src.main.get_search_service") as mock_get_search, patch("src.main.get_llm_service") as mock_get_llm:
+        mock_search = MagicMock()
+        mock_search.semantic_cache_lookup.return_value = None
+        mock_search.search.return_value = [{"id": 1, "text": "foo", "filename": "bar", "source_type": "pdf", "allowed_groups": ["Public"]}]
+        mock_get_search.return_value = mock_search
+        
+        mock_llm = MagicMock()
+        mock_llm.generate_answer.return_value = ("Hello World", ["bar"])
+        mock_get_llm.return_value = mock_llm
+        
+        # Login
+        client.post("/auth/register", json={"username": "asker", "password": "pw"})
+        token = client.post("/auth/token", data={"username": "asker", "password": "pw"}).json()["access_token"]
+        
+        # Run query
+        res = client.post("/query", json={"query": "hello?"}, headers={"Authorization": f"Bearer {token}"})
+        assert res.status_code == 200
+        data = res.json()
+        assert data["answer"] == "Hello World"
+        assert data["citations"] == ["bar"]
+        assert data["cached"] is False
+
+def test_dlq_endpoints(client, db_session, mock_celery):
+    from src.db.models import User, FailedIngestion
+    # Register & make admin
+    client.post("/auth/register", json={"username": "dlq_admin", "password": "pw"})
+    admin_user = db_session.query(User).filter(User.username == "dlq_admin").first()
+    admin_user.groups = ["admin"]
     
-    mock_llm = mocker.patch("src.main.get_llm_service")
-    mock_llm.return_value.generate_answer.return_value = ("Hello World", ["bar"])
+    # Create sample DLQ record
+    failed_task = FailedIngestion(
+        filepath="minio://documents/bad.pdf",
+        source_type="pdf",
+        error_message="Corrupted header",
+        retry_count=3,
+        status="FAILED"
+    )
+    db_session.add(failed_task)
+    db_session.commit()
     
-    # Login
-    client.post("/auth/register", json={"username": "asker", "password": "pw"})
-    token = client.post("/auth/token", data={"username": "asker", "password": "pw"}).json()["access_token"]
+    token = client.post("/auth/token", data={"username": "dlq_admin", "password": "pw"}).json()["access_token"]
     
-    # Run query
-    res = client.post("/query", json={"query": "hello?"}, headers={"Authorization": f"Bearer {token}"})
+    # 1. Fetch DLQ
+    res = client.get("/admin/dlq", headers={"Authorization": f"Bearer {token}"})
     assert res.status_code == 200
     data = res.json()
-    assert data["answer"] == "Hello World"
-    assert data["citations"] == ["bar"]
-    assert data["cached"] is False
+    assert data["total"] >= 1
+    assert data["records"][0]["error_message"] == "Corrupted header"
+    
+    # 2. Retry DLQ Task
+    rec_id = data["records"][0]["id"]
+    retry_res = client.post(f"/admin/dlq/{rec_id}/retry", headers={"Authorization": f"Bearer {token}"})
+    assert retry_res.status_code == 200
+    assert retry_res.json()["status"] == "success"
+    assert mock_celery.called
+
+def test_upload_file_endpoint(client, db_session, mock_celery):
+    from src.db.models import User
+    client.post("/auth/register", json={"username": "uploader", "password": "pw"})
+    token = client.post("/auth/token", data={"username": "uploader", "password": "pw"}).json()["access_token"]
+    
+    files = {"file": ("test_doc.md", b"# Sample Confluence Content", "text/markdown")}
+    res = client.post("/ingest/file", headers={"Authorization": f"Bearer {token}"}, files=files)
+    assert res.status_code == 200
+    assert res.json()["status"] == "success"
+    assert mock_celery.called
