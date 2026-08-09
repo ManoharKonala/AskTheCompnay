@@ -9,9 +9,14 @@ from src.db.models import Base
 logger = logging.getLogger(__name__)
 
 # ==========================================
-# PostgreSQL Setup
+# Database Setup (Postgres with SQLite in-memory fallback)
 # ==========================================
-engine = create_engine(Config.DATABASE_URL)
+try:
+    engine = create_engine(Config.DATABASE_URL)
+except Exception as e:
+    logger.warning(f"Could not initialize PostgreSQL engine with {Config.DATABASE_URL}: {e}. Using SQLite in-memory fallback.")
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def get_db():
@@ -28,32 +33,42 @@ def init_postgres():
 # ==========================================
 # Qdrant Setup
 # ==========================================
-qdrant_client = QdrantClient(host=Config.QDRANT_HOST, port=Config.QDRANT_PORT)
+try:
+    qdrant_client = QdrantClient(host=Config.QDRANT_HOST, port=Config.QDRANT_PORT)
+except Exception as e:
+    logger.warning(f"Could not connect to Qdrant at {Config.QDRANT_HOST}:{Config.QDRANT_PORT}: {e}")
+    qdrant_client = None
 
 COLLECTION_NAME = "ask_the_company"
 
 def init_qdrant():
-    collections = qdrant_client.get_collections().collections
-    exists = any(c.name == COLLECTION_NAME for c in collections)
-    
-    if not exists:
-        qdrant_client.create_collection(
-            collection_name=COLLECTION_NAME,
-            vectors_config=rest.VectorParams(
-                size=1024,  # BGE-M3 dense vector size
-                distance=rest.Distance.COSINE
-            ),
-            sparse_vectors_config={
-                "text-sparse": rest.SparseVectorParams(
-                    index=rest.SparseIndexParams(
-                        on_disk=True
+    if not qdrant_client:
+        logger.info("Qdrant client not initialized; skipping collection creation.")
+        return
+    try:
+        collections = qdrant_client.get_collections().collections
+        exists = any(c.name == COLLECTION_NAME for c in collections)
+        
+        if not exists:
+            qdrant_client.create_collection(
+                collection_name=COLLECTION_NAME,
+                vectors_config=rest.VectorParams(
+                    size=1024,  # BGE-M3 dense vector size
+                    distance=rest.Distance.COSINE
+                ),
+                sparse_vectors_config={
+                    "text-sparse": rest.SparseVectorParams(
+                        index=rest.SparseIndexParams(
+                            on_disk=True
+                        )
                     )
-                )
-            }
-        )
-        logger.info(f"Qdrant collection '{COLLECTION_NAME}' created with dense (1024) and sparse vector configs.")
-    else:
-        logger.info(f"Qdrant collection '{COLLECTION_NAME}' already exists.")
+                }
+            )
+            logger.info(f"Qdrant collection '{COLLECTION_NAME}' created with dense (1024) and sparse vector configs.")
+        else:
+            logger.info(f"Qdrant collection '{COLLECTION_NAME}' already exists.")
+    except Exception as e:
+        logger.warning(f"Could not initialize Qdrant collection: {e}")
 
 def init_dbs():
     init_postgres()
