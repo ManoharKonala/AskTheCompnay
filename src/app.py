@@ -174,7 +174,7 @@ with st.sidebar:
     st.markdown("---")
     if st.session_state["username"]:
         st.write(f"**Current User:** `{st.session_state['username']}`")
-        st.write(f"**Assigned Groups:**")
+        st.write("**Assigned Groups:**")
         for g in st.session_state["user_groups"]:
             st.markdown(f"- `<span class='acl-badge'>{g}</span>`", unsafe_allow_html=True)
     else:
