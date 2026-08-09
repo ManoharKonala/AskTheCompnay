@@ -1,4 +1,3 @@
-import pytest
 from src.retrieval.llm import LLMService
 
 def test_confidence_gate(mocker):
