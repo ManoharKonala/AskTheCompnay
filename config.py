@@ -28,4 +28,19 @@ class Config:
     OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
     MODEL_NAME = os.getenv("MODEL_NAME", "llama3.1:8b")
 
+    # Inference Backend: "ollama" or "vllm"
+    INFERENCE_BACKEND = os.getenv("INFERENCE_BACKEND", "ollama").lower()
+    VLLM_API_URL = os.getenv("VLLM_API_URL", "http://localhost:8000/v1")
+    VLLM_API_KEY = os.getenv("VLLM_API_KEY", "EMPTY")
+
+    # Authentication Mode: "local" (JWT) or "oidc" (Keycloak/Okta)
+    AUTH_MODE = os.getenv("AUTH_MODE", "local").lower()
     JWT_SECRET = os.getenv("JWT_SECRET", "super_secret_key_change_me_in_production")
+    OIDC_ISSUER_URL = os.getenv("OIDC_ISSUER_URL", "http://localhost:8080/realms/askthecompany")
+    OIDC_CLIENT_ID = os.getenv("OIDC_CLIENT_ID", "askthecompany-app")
+    OIDC_AUDIENCE = os.getenv("OIDC_AUDIENCE", None)
+
+    # CORS Origins for Next.js and Streamlit
+    CORS_ORIGINS = [
+        origin.strip() for origin in os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000,http://localhost:8501").split(",") if origin.strip()
+    ]
