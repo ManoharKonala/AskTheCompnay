@@ -2,7 +2,7 @@
 > 🔓 **100% Open-Source, Kubernetes-Native** distributed semantic search engine designed for Fortune 500 companies in highly regulated sectors (finance, healthcare, defense). Features payload-level Access Control Lists (ACLs), automated Presidio PII redaction, MinHash LSH deduplication, dual-encoder hybrid search, cross-encoder reranking, Celery Dead Letter Queues (DLQ), and OIDC/SAML enterprise identity. **Zero cloud data exfiltration. Zero vendor lock-in.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/release/python-3120/)
+[![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/release/python-3110/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-2.0_Async-009688.svg)](https://fastapi.tiangolo.com/)
 [![Next.js 14](https://img.shields.io/badge/Next.js-14_App_Router-black.svg)](https://nextjs.org/)
 [![Docker](https://img.shields.io/badge/docker-enabled-blue.svg)](https://www.docker.com/)
