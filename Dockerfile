@@ -1,6 +1,6 @@
-FROM python:3.12-slim
+FROM python:3.11-slim
 
-# System dependencies for building native extensions
+# System dependencies for building native extensions and OCR/PDF parsing
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
@@ -8,9 +8,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     poppler-utils \
     libgl1 \
     libglib2.0-0 \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+
+# Upgrade pip and pre-install CPU-optimized PyTorch
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu torch torchvision torchaudio
 
 # Install Python dependencies first (Docker layer caching)
 COPY requirements.txt .
